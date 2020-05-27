@@ -464,7 +464,11 @@ Browse the latest manual at:
    "names"
    {:kind :flag
     :short "n"
-    :help "When a package has a name, display only the name."}])
+    :help "When a package has a name, display only the name."}
+   "flat"
+   {:kind :flag
+    :short "f"
+    :help "Display a flat list, not a tree."}])
 
 (defn show-build-deps
   []
@@ -489,23 +493,27 @@ Browse the latest manual at:
     # Freeze the packages in order as children must be frozen first.
     (_hermes/pkg-freeze *store-path* builtins/registry p))
 
-  (defn- print-dep-tree
-    [pkg depth prefix prefix-part]
-    (print prefix
-           (if (parsed-args "names")
-             (or (pkg :name) (pkg :hash))
-             (path/basename (pkg :path))))
-    (when-let [deps (get-in dep-info [:deps pkg])]
-      (when (pos? depth)
-        (def l (-> deps length dec))
-        (eachp [i d] (sorted deps)
-          (print-dep-tree
-            d (dec depth)
-            (string prefix-part (if (= i l) " └─" " ├─"))
-            (string prefix-part (if (= i l) "   " " │ ")))))))
-
-  (print-dep-tree pkg max-depth "" ""))
-
+  (if (parsed-args "flat")
+    (each a-pkg (dep-info :all-pkgs)
+      (print (if (parsed-args "names")
+               (a-pkg :name)
+               (path/basename (a-pkg :path)))))
+    (do
+      (defn- print-dep-tree
+        [pkg depth prefix prefix-part]
+        (print prefix
+               (if (parsed-args "names")
+                 (or (pkg :name) (pkg :hash))
+                 (path/basename (pkg :path))))
+        (when-let [deps (get-in dep-info [:deps pkg])]
+          (when (pos? depth)
+            (def l (-> deps length dec))
+            (eachp [i d] (sorted deps)
+                   (print-dep-tree
+                    d (dec depth)
+                    (string prefix-part (if (= i l) " └─" " ├─"))
+                    (string prefix-part (if (= i l) "   " " │ ")))))))
+      (print-dep-tree pkg max-depth "" ""))))
 
 (defn main
   [&]
