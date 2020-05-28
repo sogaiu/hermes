@@ -11,6 +11,7 @@
 (import ./hash)
 (import ./version)
 (import ./builtins)
+(import ./walkpkgstore)
 (import ../build/_hermes)
 
 (var *store-path* "")
@@ -464,7 +465,11 @@ Browse the latest manual at:
    "names"
    {:kind :flag
     :short "n"
-    :help "When a package has a name, display only the name."}])
+    :help "When a package has a name, display only the name."}
+   "flat"
+   {:kind :flag
+    :short "f"
+    :help "Display a flat list, not a tree."}])
 
 (defn show-build-deps
   []
@@ -489,23 +494,49 @@ Browse the latest manual at:
     # Freeze the packages in order as children must be frozen first.
     (_hermes/pkg-freeze *store-path* builtins/registry p))
 
-  (defn- print-dep-tree
-    [pkg depth prefix prefix-part]
-    (print prefix
-           (if (parsed-args "names")
-             (or (pkg :name) (pkg :hash))
-             (path/basename (pkg :path))))
-    (when-let [deps (get-in dep-info [:deps pkg])]
-      (when (pos? depth)
-        (def l (-> deps length dec))
-        (eachp [i d] (sorted deps)
-          (print-dep-tree
-            d (dec depth)
-            (string prefix-part (if (= i l) " └─" " ├─"))
-            (string prefix-part (if (= i l) "   " " │ ")))))))
+  (if (parsed-args "flat")
+    (each a-pkg (dep-info :all-pkgs)
+      (print (if (parsed-args "names")
+               (a-pkg :name)
+               (path/basename (a-pkg :path)))))
+    (do
+      (defn- print-dep-tree
+        [pkg depth prefix prefix-part]
+        (print prefix
+               (if (parsed-args "names")
+                 (or (pkg :name) (pkg :hash))
+                 (path/basename (pkg :path))))
+        (when-let [deps (get-in dep-info [:deps pkg])]
+          (when (pos? depth)
+            (def l (-> deps length dec))
+            (eachp [i d] (sorted deps)
+                   (print-dep-tree
+                    d (dec depth)
+                    (string prefix-part (if (= i l) " └─" " ├─"))
+                    (string prefix-part (if (= i l) "   " " │ ")))))))
+      (print-dep-tree pkg max-depth "" ""))))
 
-  (print-dep-tree pkg max-depth "" ""))
+(def- show-deps-params
+  ["Show the closure for a package."
+   "path"
+   {:kind :option
+    :short "p"
+    :help "Path to a build package to show deps for."}])
 
+(defn show-deps
+  []
+  (def parsed-args (argparse/argparse ;show-deps-params))
+  (unless parsed-args
+    (os/exit 1))
+
+  (when-let [pkg-root (parsed-args "path")]
+    (def pkg-paths @[])
+    (walkpkgstore/walk-store-closure [pkg-root]
+                                     (fn [path _ _]
+                                       (array/push pkg-paths path)))
+    (each path pkg-paths
+      (print path))
+    (os/exit 0)))
 
 (defn main
   [&]
@@ -518,6 +549,7 @@ Browse the latest manual at:
       [_ "gc"] (gc)
       [_ "cp"] (cp)
       [_ "show-build-deps"] (show-build-deps)
+      [_ "show-deps"] (show-deps)
       [_ "version"] (print version/version)
       _ (unknown-command)))
   nil)
